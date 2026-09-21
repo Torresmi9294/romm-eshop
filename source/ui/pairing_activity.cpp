@@ -11,8 +11,17 @@ namespace
     constexpr const char* DEFAULT_SERVER_HINT = "http://192.168.1.100:8080";
 }
 
-PairingActivity::PairingActivity() = default;
-PairingActivity::~PairingActivity() = default;
+PairingActivity::PairingActivity()
+    : m_alive(std::make_shared<std::atomic<bool>>(true))
+{
+}
+
+PairingActivity::~PairingActivity()
+{
+    *m_alive = false;
+    if (m_workThread.joinable())
+        m_workThread.detach();
+}
 
 brls::View* PairingActivity::createContentView()
 {
@@ -23,6 +32,12 @@ void PairingActivity::onContentAvailable()
 {
     m_pollTask = std::make_unique<PollTask>(this);
     m_pollTask->start();
+
+    // Render *something* before any blocking call (swkbd, network) runs --
+    // onContentAvailable() executes before borealis's main loop has drawn
+    // its first frame, so anything blocking here would otherwise leave the
+    // screen blank until it returns.
+    RebuildContent();
 
     auto& app = romm::AppState::Instance();
     if (app.config.serverUrl.empty())
@@ -51,7 +66,6 @@ void PairingActivity::PromptForServerUrl()
         std::lock_guard<std::mutex> lock(m_textMutex);
         m_errorText = "A server address is required to continue.";
         m_phase = Phase::Error;
-        RebuildContent();
     }
     else
     {
@@ -62,9 +76,21 @@ void PairingActivity::PromptForServerUrl()
 void PairingActivity::StartPairing()
 {
     m_phase = Phase::Initiating;
-    RebuildContent();
 
+    if (m_workThread.joinable())
+        m_workThread.detach();
+
+    auto alive = m_alive;
+    m_workThread = std::thread([this, alive]() {
+        RunPairingFlow();
+    });
+}
+
+void PairingActivity::RunPairingFlow()
+{
+    auto alive = m_alive;
     auto& app = romm::AppState::Instance();
+
     if (app.config.clientDeviceIdentifier.empty())
         app.config.clientDeviceIdentifier = romm::config::GenerateDeviceIdentifier();
 
@@ -73,87 +99,90 @@ void PairingActivity::StartPairing()
     romm::api::DeviceAuthInit init;
     std::string error;
     bool ok = app.client->DeviceAuthInitiate(app.config.clientDeviceIdentifier, init, error);
+    if (!*alive) return;
 
-    std::lock_guard<std::mutex> lock(m_textMutex);
     if (!ok)
     {
+        std::lock_guard<std::mutex> lock(m_textMutex);
         m_errorText = error;
         m_phase = Phase::Error;
-        RebuildContent();
         return;
     }
 
-    m_deviceCode = init.deviceCode;
-    m_userCode = init.userCode;
-    m_verificationUrl = init.verificationUrl;
-    m_intervalSeconds = init.intervalSeconds > 0 ? init.intervalSeconds : 5;
-    m_expiresAt = std::chrono::steady_clock::now() + std::chrono::seconds(init.expiresInSeconds > 0 ? init.expiresInSeconds : 600);
-    m_nextPollAt = std::chrono::steady_clock::now() + std::chrono::seconds(m_intervalSeconds);
-    m_phase = Phase::WaitingApproval;
-    RebuildContent();
-}
+    std::string deviceCode = init.deviceCode;
+    int intervalSeconds = init.intervalSeconds > 0 ? init.intervalSeconds : 5;
+    auto expiresAt = std::chrono::steady_clock::now() +
+                      std::chrono::seconds(init.expiresInSeconds > 0 ? init.expiresInSeconds : 600);
 
-void PairingActivity::Tick()
-{
-    if (m_phase != Phase::WaitingApproval)
-        return;
-
-    auto now = std::chrono::steady_clock::now();
-
-    if (now >= m_expiresAt)
     {
         std::lock_guard<std::mutex> lock(m_textMutex);
-        m_errorText = "Pairing code expired. Please try again.";
-        m_phase = Phase::Error;
-        RebuildContent();
-        return;
+        m_userCode = init.userCode;
+        m_verificationUrl = init.verificationUrl;
     }
+    m_phase = Phase::WaitingApproval;
 
-    if (now < m_nextPollAt)
-        return;
-
-    m_nextPollAt = now + std::chrono::seconds(m_intervalSeconds);
-
-    auto& app = romm::AppState::Instance();
-    romm::api::DeviceAuthToken token;
-    auto status = app.client->DeviceAuthPoll(m_deviceCode, token);
-
-    switch (status)
+    while (*alive)
     {
-        case romm::api::DeviceAuthStatus::Ok:
+        auto sleepUntil = std::chrono::steady_clock::now() + std::chrono::seconds(intervalSeconds);
+        while (*alive && std::chrono::steady_clock::now() < sleepUntil)
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        if (!*alive) return;
+
+        if (std::chrono::steady_clock::now() >= expiresAt)
+        {
+            std::lock_guard<std::mutex> lock(m_textMutex);
+            m_errorText = "Pairing code expired. Please try again.";
+            m_phase = Phase::Error;
+            return;
+        }
+
+        romm::api::DeviceAuthToken token;
+        auto status = app.client->DeviceAuthPoll(deviceCode, token);
+        if (!*alive) return;
+
+        if (status == romm::api::DeviceAuthStatus::Ok)
         {
             app.config.deviceId = token.deviceId;
             app.config.accessToken = token.accessToken;
             app.config.paired = true;
             romm::config::Save(app.config);
             app.RebuildClient();
-
             m_phase = Phase::Approved;
-            m_pollTask->stop();
-            brls::Application::pushActivity(new romm::ui::StoreActivity());
-            break;
+            return;
         }
-        case romm::api::DeviceAuthStatus::Denied:
+        else if (status == romm::api::DeviceAuthStatus::Denied)
         {
             std::lock_guard<std::mutex> lock(m_textMutex);
             m_errorText = "Pairing was denied.";
             m_phase = Phase::Error;
-            RebuildContent();
-            break;
+            return;
         }
-        case romm::api::DeviceAuthStatus::Expired:
+        else if (status == romm::api::DeviceAuthStatus::Expired)
         {
             std::lock_guard<std::mutex> lock(m_textMutex);
             m_errorText = "Pairing code expired. Please try again.";
             m_phase = Phase::Error;
-            RebuildContent();
-            break;
+            return;
         }
-        case romm::api::DeviceAuthStatus::Pending:
-        case romm::api::DeviceAuthStatus::NetworkError:
-            // Keep waiting; a transient network hiccup shouldn't kill the flow.
-            break;
+        // Pending or NetworkError: loop again until expiry.
     }
+}
+
+void PairingActivity::Tick()
+{
+    Phase phase = m_phase;
+    if (phase == m_lastRenderedPhase)
+        return;
+    m_lastRenderedPhase = phase;
+
+    if (phase == Phase::Approved)
+    {
+        m_pollTask->stop();
+        brls::Application::pushActivity(new romm::ui::StoreActivity());
+        return;
+    }
+
+    RebuildContent();
 }
 
 void PairingActivity::RebuildContent()
@@ -186,28 +215,28 @@ void PairingActivity::RebuildContent()
         instructions->setMarginBottom(20);
         root->addView(instructions);
 
-        m_urlLabel = new brls::Label();
-        m_urlLabel->setText(m_verificationUrl);
-        m_urlLabel->setFontSize(24);
-        m_urlLabel->setMarginBottom(40);
-        root->addView(m_urlLabel);
+        auto urlLabel = new brls::Label();
+        urlLabel->setText(m_verificationUrl);
+        urlLabel->setFontSize(24);
+        urlLabel->setMarginBottom(40);
+        root->addView(urlLabel);
 
         auto codeHint = new brls::Label();
         codeHint->setText("Confirm this code matches:");
         codeHint->setFontSize(20);
         root->addView(codeHint);
 
-        m_codeLabel = new brls::Label();
-        m_codeLabel->setText(m_userCode);
-        m_codeLabel->setFontSize(56);
-        m_codeLabel->setMarginTop(10);
-        m_codeLabel->setMarginBottom(40);
-        root->addView(m_codeLabel);
+        auto codeLabel = new brls::Label();
+        codeLabel->setText(m_userCode);
+        codeLabel->setFontSize(56);
+        codeLabel->setMarginTop(10);
+        codeLabel->setMarginBottom(40);
+        root->addView(codeLabel);
 
-        m_statusLabel = new brls::Label();
-        m_statusLabel->setText("Waiting for approval...");
-        m_statusLabel->setFontSize(20);
-        root->addView(m_statusLabel);
+        auto statusLabel = new brls::Label();
+        statusLabel->setText("Waiting for approval...");
+        statusLabel->setFontSize(20);
+        root->addView(statusLabel);
     }
     else if (phase == Phase::Error)
     {
