@@ -421,6 +421,14 @@ namespace romm::api
         if (sourcePath.empty())
             return false;
 
+        // RomM's path_cover_* includes a "?ts=2026-08-21 16:51:47" style
+        // cache-busting query string with an unencoded space, which curl's
+        // URL parser can reject outright. We cache covers locally forever,
+        // so the cache-busting param serves no purpose here -- just drop it.
+        auto queryPos = sourcePath.find('?');
+        if (queryPos != std::string::npos)
+            sourcePath = sourcePath.substr(0, queryPos);
+
         struct stat st;
         if (stat(destPath.c_str(), &st) == 0 && st.st_size > 0)
             return true; // already cached

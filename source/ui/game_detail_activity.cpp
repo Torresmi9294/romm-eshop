@@ -182,6 +182,36 @@ void GameDetailActivity::UpdateProgressLabel()
 
 void GameDetailActivity::RebuildContent()
 {
+    // Not run on real hardware during development -- if anything here throws
+    // (bad layout constraint, unexpected data, etc.), show it instead of
+    // leaving the screen blank with no way to tell what happened.
+    try
+    {
+        RebuildContentUnsafe();
+    }
+    catch (const std::exception& e)
+    {
+        auto frame = new brls::AppletFrame();
+        frame->setTitle("Error");
+        auto root = new brls::Box();
+        root->setAxis(brls::Axis::COLUMN);
+        root->setJustifyContent(brls::JustifyContent::CENTER);
+        root->setAlignItems(brls::AlignItems::CENTER);
+        root->setGrow(1);
+        root->setPadding(60, 80, 60, 80);
+        auto label = new brls::Label();
+        label->setText(std::string("Something went wrong showing this game: ") + e.what());
+        label->setFontSize(22);
+        root->addView(label);
+        frame->setContentView(root);
+        this->setContentView(frame);
+    }
+
+    brls::Application::giveFocus(this->getDefaultFocus());
+}
+
+void GameDetailActivity::RebuildContentUnsafe()
+{
     auto frame = new brls::AppletFrame();
     frame->setTitle(m_rom.name.empty() ? m_rom.fsName : m_rom.name);
 
@@ -217,6 +247,15 @@ void GameDetailActivity::RebuildContent()
     auto summary = new brls::Label();
     summary->setText(m_rom.summary.empty() ? "No description available." : m_rom.summary);
     summary->setFontSize(20);
+    // ScrollingFrame::setContentView() constrains its child to
+    // this->getWidth() at the moment it's called -- but `scroll` hasn't been
+    // laid out yet at this point (not yet attached to the tree), so that
+    // width is 0. Some RomM descriptions run to hundreds of characters, and
+    // wrapping that into an effectively zero-width label produced a
+    // pathological layout that blanked the whole screen. Give it an
+    // explicit, known-good width up front instead of relying on layout
+    // timing here.
+    summary->setWidth(680);
     scroll->setContentView(summary);
     infoColumn->addView(scroll);
 
@@ -285,8 +324,4 @@ void GameDetailActivity::RebuildContent()
     root->addView(infoColumn);
     frame->setContentView(root);
     this->setContentView(frame);
-
-    // See StoreActivity::RebuildContent() for why this is needed on every
-    // rebuild, not just the first: setContentView() alone doesn't move focus.
-    brls::Application::giveFocus(this->getDefaultFocus());
 }

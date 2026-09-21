@@ -62,6 +62,7 @@ namespace romm::ui
         void StartDownloadAndInstall();
         void Tick();
         void RebuildContent();
+        void RebuildContentUnsafe(); // does the real work; RebuildContent() wraps it in try/catch
         void UpdateProgressLabel();
     };
 }
