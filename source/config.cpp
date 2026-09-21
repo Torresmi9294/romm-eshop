@@ -55,6 +55,7 @@ namespace romm::config
     {
         EnsureDir("sdmc:/switch");
         EnsureDir(CONFIG_DIR);
+        EnsureDir(std::string(CONFIG_DIR) + "/cache"); // mkdir isn't recursive -- COVER_CACHE_DIR nests one level deeper
         EnsureDir(COVER_CACHE_DIR);
         EnsureDir(DOWNLOAD_DIR);
 

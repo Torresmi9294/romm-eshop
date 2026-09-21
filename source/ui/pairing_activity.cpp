@@ -266,4 +266,8 @@ void PairingActivity::RebuildContent()
 
     frame->setContentView(root);
     this->setContentView(frame);
+
+    // See StoreActivity::RebuildContent() for why this is needed on every
+    // rebuild, not just the first: setContentView() alone doesn't move focus.
+    brls::Application::giveFocus(this->getDefaultFocus());
 }

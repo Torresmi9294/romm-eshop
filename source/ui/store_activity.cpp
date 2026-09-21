@@ -83,6 +83,7 @@ void StoreActivity::StartLoading()
 
         mkdir("sdmc:/switch", 0777);
         mkdir(romm::config::CONFIG_DIR, 0777);
+        mkdir((std::string(romm::config::CONFIG_DIR) + "/cache").c_str(), 0777); // mkdir isn't recursive
         mkdir(romm::config::COVER_CACHE_DIR, 0777);
 
         for (auto& rom : roms)
@@ -220,4 +221,12 @@ void StoreActivity::RebuildContent()
     }
 
     this->setContentView(frame);
+
+    // setContentView() outside the initial onContentAvailable() call (i.e.
+    // every rebuild here, since the first one shows a plain "Loading..."
+    // label with nothing focusable) does NOT get focus assigned
+    // automatically -- only Application::pushActivity() does that, once, at
+    // push time. Without this, the grid renders but the d-pad has nothing
+    // to move between, which looks exactly like the app hanging.
+    brls::Application::giveFocus(this->getDefaultFocus());
 }
