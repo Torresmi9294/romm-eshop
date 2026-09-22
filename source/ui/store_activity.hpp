@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "api/romm_client.hpp"
+#include "updater/updater.hpp"
 
 namespace romm::ui
 {
@@ -51,6 +52,11 @@ namespace romm::ui
         };
         std::unique_ptr<PollTask> m_pollTask;
         Phase m_lastRenderedPhase = Phase::Loading;
+
+        std::atomic<bool> m_updateAvailable{false};
+        std::atomic<bool> m_updatePromptShown{false};
+        updater::UpdateInfo m_updateInfo;
+        std::mutex m_updateMutex;
 
         void StartLoading();
         void Tick();

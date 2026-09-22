@@ -14,6 +14,7 @@ SOURCES		:=	source \
 				source/api \
 				source/install \
 				source/ui \
+				source/updater \
 				source/vendor/awoo/source/install \
 				source/vendor/awoo/source/nx \
 				source/vendor/awoo/source/nx/ipc \
@@ -33,7 +34,7 @@ INCLUDES	:=	source \
 
 APP_TITLE	:=	RomM eShop
 APP_AUTHOR	:=	romm-eshop
-APP_VERSION	:=	0.1.0
+APP_VERSION	:=	0.1.5
 
 ROMFS			:=	romfs
 BOREALIS_PATH	:=	external/borealis

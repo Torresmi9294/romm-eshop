@@ -1,5 +1,6 @@
 #include "ui/store_activity.hpp"
 #include "ui/game_detail_activity.hpp"
+#include "ui/update_activity.hpp"
 #include "app_state.hpp"
 #include "config.hpp"
 
@@ -93,14 +94,36 @@ void StoreActivity::StartLoading()
         }
 
         if (!*alive) return;
-        std::lock_guard<std::mutex> lock(m_dataMutex);
-        m_roms = std::move(roms);
-        m_phase = Phase::Ready;
+        {
+            std::lock_guard<std::mutex> lock(m_dataMutex);
+            m_roms = std::move(roms);
+            m_phase = Phase::Ready;
+        }
+
+        // Best-effort, non-blocking: a failed/slow check just means no
+        // update prompt this session, never blocks the store from showing.
+        if (!*alive) return;
+        romm::updater::UpdateInfo info;
+        bool available = false;
+        std::string updateError;
+        if (romm::updater::CheckForUpdate(info, available, updateError) && available && *alive)
+        {
+            std::lock_guard<std::mutex> lock(m_updateMutex);
+            m_updateInfo = info;
+            m_updateAvailable = true;
+        }
     });
 }
 
 void StoreActivity::Tick()
 {
+    if (m_phase == Phase::Ready && m_updateAvailable && !m_updatePromptShown)
+    {
+        m_updatePromptShown = true;
+        std::lock_guard<std::mutex> lock(m_updateMutex);
+        brls::Application::pushActivity(new romm::ui::UpdateActivity(m_updateInfo));
+    }
+
     if (m_phase == m_lastRenderedPhase)
         return;
 
