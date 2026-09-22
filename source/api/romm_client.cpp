@@ -417,7 +417,14 @@ namespace romm::api
 
     bool RommClient::DownloadCoverArt(const Rom& rom, const std::string& destPath)
     {
-        std::string sourcePath = !rom.pathCoverLarge.empty() ? rom.pathCoverLarge : rom.pathCoverSmall;
+        // Prefer the small cover (168x272 on a real RomM server, vs. ~421x680
+        // for the large one). borealis's deko3d image memory pool is only a
+        // few MB (see IMAGES_POOL_SIZE in switch_video.cpp) shared across
+        // every texture in the app -- caching 80+ large covers as
+        // uncompressed GPU textures (~1MB+ each) blows straight through it
+        // and crashes well below the C++ exception layer. The small cover is
+        // ~180KB as a texture, which comfortably fits a whole library.
+        std::string sourcePath = !rom.pathCoverSmall.empty() ? rom.pathCoverSmall : rom.pathCoverLarge;
         if (sourcePath.empty())
             return false;
 

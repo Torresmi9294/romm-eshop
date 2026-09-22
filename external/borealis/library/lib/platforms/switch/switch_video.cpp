@@ -28,7 +28,10 @@
 #define DOCKED_WIDTH 1920.f
 #define DOCKED_HEIGHT 1080.f
 
-#define IMAGES_POOL_SIZE 4 * 1024 * 1024
+// Bumped from upstream's 4 MiB: this app loads dozens of cover-art textures
+// at once (a game library grid), not just a handful of UI icons, which
+// upstream's default assumes. See THIRD_PARTY.md.
+#define IMAGES_POOL_SIZE 32 * 1024 * 1024
 #define CODE_POOL_SIZE 128 * 1024
 #define DATA_POOL_SIZE 1 * 1024 * 1024
 

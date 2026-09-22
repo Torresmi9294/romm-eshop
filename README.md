@@ -68,10 +68,12 @@ automatically after a successful install.
   you hit this, redownload the file.
 - **Store loading is serial.** On first load, cover art for all games downloads one at a time before the grid
   shows. It's cached after that, so subsequent launches are fast.
-- **Not tested on real hardware.** This was built and compiled with the real devkitA64 toolchain and the RomM
-  API calls were verified live against a real RomM 5.2.0 server, but no Switch was available to run the actual
-  `.nro` end-to-end. Compile-time correctness is verified; runtime behavior on-console is not. Please treat the
-  first run as a test and report back anything that misbehaves.
+- **Cover art is the small variant everywhere, including the detail page.** The grid caches RomM's small cover
+  (not the large one) to stay well inside borealis's GPU image memory budget across a whole library's worth of
+  textures at once -- see `THIRD_PARTY.md`'s `IMAGES_POOL_SIZE` note. The detail page reuses that same cached
+  file rather than fetching a second, larger copy, so it looks a bit softer than it could. Fetching the large
+  cover lazily just for the detail page (one at a time, not 80 at once) would fix this and is a reasonable next
+  step.
 
 ## Project layout
 
@@ -80,7 +82,8 @@ automatically after a successful install.
 - `source/vendor/awoo/` -- files copied unmodified from Awoo Installer's install engine (`install/`, `nx/`,
   `data/`, `util/`), plus a small shim (`shim/`) standing in for Awoo's own UI/config/i18n so the install engine
   didn't need to be modified. See [`THIRD_PARTY.md`](THIRD_PARTY.md) for exactly which files and why.
-- `external/borealis/` -- the [borealis](https://github.com/natinusala/borealis) UI framework (submodule).
+- `external/borealis/` -- the [borealis](https://github.com/natinusala/borealis) UI framework (vendored, with a
+  few small patches -- see `THIRD_PARTY.md`).
 
 ## License
 

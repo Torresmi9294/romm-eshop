@@ -25,13 +25,21 @@ Because this vendored code is GPLv3, romm-eshop as a whole is licensed GPLv3.
 
 ## borealis (Apache 2.0)
 
-`external/borealis/` is a git submodule of [natinusala/borealis](https://github.com/natinusala/borealis),
-pinned at commit `20e2d33b6c4ffce139ce304c503c04f5b94da920`, licensed Apache 2.0. Two small compatibility
-patches were applied on top for this toolchain (current devkitA64/libnx), not upstream borealis bugs in
-general use:
-- `library/lib/extern/nanovg-deko3d/include/nanovg/dk_renderer.hpp`: added missing `#include <optional>`.
+`external/borealis/` is vendored (plain files, not a git submodule -- private repo, simplest to keep everything
+self-contained) from [natinusala/borealis](https://github.com/natinusala/borealis), pinned at commit
+`20e2d33b6c4ffce139ce304c503c04f5b94da920`, licensed Apache 2.0. Small compatibility/tuning patches applied on
+top:
+- `library/lib/extern/nanovg-deko3d/include/nanovg/dk_renderer.hpp`: added missing `#include <optional>` (build
+  fix for the current devkitA64/libnx toolchain, not an upstream bug in general use).
 - `library/lib/platforms/switch/swkbd.cpp`: removed a call to `swkbdConfigSetStringLenMaxExt`, which no longer
-  exists in current libnx (superseded by `swkbdConfigSetStringLenMax`, already called on the line above it).
+  exists in current libnx (superseded by `swkbdConfigSetStringLenMax`, already called on the line above it;
+  same category as the fix above).
+- `library/lib/platforms/switch/switch_video.cpp`: bumped `IMAGES_POOL_SIZE` from upstream's 4 MiB to 32 MiB.
+  This is a real behavioral change, not a build fix: upstream's default is sized for a typical icon-heavy UI,
+  not a game-cover grid. Loading dozens of cover art textures (RomM's small cover is ~180KB as a decoded GPU
+  texture; the large one is over 1MB) blew straight through 4 MiB and crashed below the C++ exception layer
+  (deko3d's memory pool allocator aborts on exhaustion rather than failing gracefully) -- this is what caused
+  the "blank screen" bugs during testing, not application-level bugs.
 
 `romfs/shaders/*.dksh` are borealis's own nanovg-deko3d shaders, precompiled from
 `external/borealis/library/lib/extern/nanovg-deko3d/shaders/*.glsl` via devkitPro's `uam` compiler and checked
