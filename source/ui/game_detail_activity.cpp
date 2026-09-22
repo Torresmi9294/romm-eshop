@@ -37,6 +37,7 @@ namespace
 GameDetailActivity::GameDetailActivity(api::Rom rom)
     : m_rom(std::move(rom)), m_alive(std::make_shared<std::atomic<bool>>(true))
 {
+    brls::Logger::debug("GameDetailActivity: constructed for rom.id={}", m_rom.id);
 }
 
 GameDetailActivity::~GameDetailActivity()
@@ -191,6 +192,7 @@ void GameDetailActivity::RebuildContent()
     }
     catch (const std::exception& e)
     {
+        brls::Logger::error("GameDetailActivity: RebuildContent threw: {}", e.what());
         auto frame = new brls::AppletFrame();
         frame->setTitle("Error");
         auto root = new brls::Box();
@@ -212,13 +214,17 @@ void GameDetailActivity::RebuildContent()
 
 void GameDetailActivity::RebuildContentUnsafe()
 {
+    brls::Logger::debug("GameDetailActivity: RebuildContent begin, rom.id={} name=\"{}\"", m_rom.id, m_rom.name);
+
     auto frame = new brls::AppletFrame();
     frame->setTitle(m_rom.name.empty() ? m_rom.fsName : m_rom.name);
+    brls::Logger::debug("GameDetailActivity: frame created");
 
     auto root = new brls::Box();
     root->setAxis(brls::Axis::ROW);
     root->setGrow(1);
     root->setPadding(40, 60, 40, 60);
+    brls::Logger::debug("GameDetailActivity: root box created");
 
     auto cover = new brls::Image();
     cover->setWidth(340);
@@ -227,9 +233,15 @@ void GameDetailActivity::RebuildContentUnsafe()
     cover->setMarginRight(50);
     std::string coverPath = CoverCachePath(m_rom);
     struct stat st;
-    if (stat(coverPath.c_str(), &st) == 0 && st.st_size > 0)
+    bool hasCover = stat(coverPath.c_str(), &st) == 0 && st.st_size > 0;
+    brls::Logger::debug("GameDetailActivity: cover path=\"{}\" exists={} size={}", coverPath, hasCover, hasCover ? st.st_size : 0);
+    if (hasCover)
+    {
         cover->setImageFromFile(coverPath);
+        brls::Logger::debug("GameDetailActivity: setImageFromFile returned");
+    }
     root->addView(cover);
+    brls::Logger::debug("GameDetailActivity: cover added to root");
 
     auto infoColumn = new brls::Box();
     infoColumn->setAxis(brls::Axis::COLUMN);
@@ -240,11 +252,13 @@ void GameDetailActivity::RebuildContentUnsafe()
     sizeLabel->setFontSize(18);
     sizeLabel->setMarginBottom(20);
     infoColumn->addView(sizeLabel);
+    brls::Logger::debug("GameDetailActivity: size label added");
 
     auto scroll = new brls::ScrollingFrame();
     scroll->setHeight(220);
     scroll->setMarginBottom(30);
     auto summary = new brls::Label();
+    brls::Logger::debug("GameDetailActivity: summary length={}", m_rom.summary.size());
     summary->setText(m_rom.summary.empty() ? "No description available." : m_rom.summary);
     summary->setFontSize(20);
     // ScrollingFrame::setContentView() constrains its child to
@@ -257,7 +271,9 @@ void GameDetailActivity::RebuildContentUnsafe()
     // timing here.
     summary->setWidth(680);
     scroll->setContentView(summary);
+    brls::Logger::debug("GameDetailActivity: scroll content set");
     infoColumn->addView(scroll);
+    brls::Logger::debug("GameDetailActivity: scroll added to infoColumn");
 
     Phase phase = m_phase;
 
@@ -323,5 +339,7 @@ void GameDetailActivity::RebuildContentUnsafe()
 
     root->addView(infoColumn);
     frame->setContentView(root);
+    brls::Logger::debug("GameDetailActivity: about to setContentView(frame)");
     this->setContentView(frame);
+    brls::Logger::debug("GameDetailActivity: setContentView(frame) returned, RebuildContent done");
 }

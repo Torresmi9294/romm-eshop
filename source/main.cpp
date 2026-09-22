@@ -1,5 +1,6 @@
 #include <borealis.hpp>
 #include <curl/curl.h>
+#include <switch.h>
 
 #include "app_state.hpp"
 #include "config.hpp"
@@ -8,7 +9,13 @@
 
 int main(int argc, char* argv[])
 {
-    brls::Logger::setLogLevel(brls::LogLevel::INFO);
+    // Redirects stdout/stderr to whichever PC pushed this build via
+    // `nxlink`, so brls::Logger output (and any printf) shows up live on
+    // that PC instead of only existing as "the screen did something weird."
+    // No-op / harmless if nothing is listening.
+    nxlinkStdio();
+
+    brls::Logger::setLogLevel(brls::LogLevel::DEBUG);
 
     // curl_global_init() is not thread-safe and must run once, before any
     // other libcurl call, from a single thread. Several activities spawn

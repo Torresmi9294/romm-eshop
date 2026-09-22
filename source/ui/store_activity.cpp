@@ -209,7 +209,9 @@ void StoreActivity::RebuildContent()
 
             romm::api::Rom romCopy = rom;
             cell->registerClickAction([romCopy](brls::View*) {
+                brls::Logger::debug("StoreActivity: cell clicked, rom.id={} name=\"{}\"", romCopy.id, romCopy.name);
                 brls::Application::pushActivity(new romm::ui::GameDetailActivity(romCopy));
+                brls::Logger::debug("StoreActivity: pushActivity returned");
                 return true;
             });
 
