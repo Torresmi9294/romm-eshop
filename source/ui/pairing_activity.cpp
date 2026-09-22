@@ -1,6 +1,5 @@
 #include "ui/pairing_activity.hpp"
 #include "ui/software_keyboard.hpp"
-#include "ui/store_activity.hpp"
 #include "app_state.hpp"
 #include "config.hpp"
 
@@ -178,7 +177,10 @@ void PairingActivity::Tick()
     if (phase == Phase::Approved)
     {
         m_pollTask->stop();
-        brls::Application::pushActivity(new romm::ui::StoreActivity());
+        // Pop back to the StoreActivity main.cpp already pushed underneath
+        // us, rather than pushing a second one on top -- see main.cpp for
+        // why (this is what actually lets PairingActivity be destroyed).
+        brls::Application::popActivity();
         return;
     }
 

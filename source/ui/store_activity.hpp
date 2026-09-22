@@ -27,12 +27,13 @@ namespace romm::ui
       private:
         enum class Phase
         {
+            WaitingForPairing, // pushed as the root activity even before pairing; PairingActivity covers us
             Loading,
             Ready,
             Error,
         };
 
-        std::atomic<Phase> m_phase{Phase::Loading};
+        std::atomic<Phase> m_phase{Phase::WaitingForPairing};
         std::shared_ptr<std::atomic<bool>> m_alive;
         std::thread m_loadThread;
 
@@ -51,7 +52,7 @@ namespace romm::ui
             StoreActivity* m_owner;
         };
         std::unique_ptr<PollTask> m_pollTask;
-        Phase m_lastRenderedPhase = Phase::Loading;
+        Phase m_lastRenderedPhase = Phase::WaitingForPairing;
 
         std::atomic<bool> m_updateAvailable{false};
         std::atomic<bool> m_updatePromptShown{false};

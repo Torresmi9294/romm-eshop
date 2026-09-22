@@ -54,8 +54,18 @@ void StoreActivity::onContentAvailable()
     });
 
     RebuildContent();
-    brls::Logger::debug("StoreActivity: initial RebuildContent done, starting load");
-    StartLoading();
+
+    if (romm::AppState::Instance().config.paired)
+    {
+        brls::Logger::debug("StoreActivity: initial RebuildContent done, starting load");
+        StartLoading();
+    }
+    else
+    {
+        // Not paired yet -- main.cpp pushes PairingActivity on top of us in
+        // this case. Tick() starts loading once config.paired flips true.
+        brls::Logger::debug("StoreActivity: not paired yet, waiting for PairingActivity");
+    }
     brls::Logger::debug("StoreActivity: onContentAvailable end");
 }
 
@@ -152,6 +162,9 @@ void StoreActivity::StartUpdateCheck()
 
 void StoreActivity::Tick()
 {
+    if (m_phase == Phase::WaitingForPairing && romm::AppState::Instance().config.paired)
+        StartLoading();
+
     if (m_phase == Phase::Ready && m_updateAvailable && !m_updatePromptShown)
     {
         m_updatePromptShown = true;
@@ -209,7 +222,16 @@ void StoreActivity::RebuildContentUnsafe()
     std::lock_guard<std::mutex> lock(m_dataMutex);
     Phase phase = m_phase;
 
-    if (phase == Phase::Loading)
+    if (phase == Phase::WaitingForPairing)
+    {
+        // Never actually visible -- PairingActivity is pushed on top of us
+        // whenever this phase is active. Exists only so there's *something*
+        // valid behind it rather than nullptr.
+        auto root = new brls::Box();
+        root->setGrow(1);
+        frame->setContentView(root);
+    }
+    else if (phase == Phase::Loading)
     {
         auto root = new brls::Box();
         root->setAxis(brls::Axis::COLUMN);

@@ -39,9 +39,19 @@ int main(int argc, char* argv[])
     app.config = romm::config::Load();
     app.RebuildClient();
 
-    if (app.config.paired)
-        brls::Application::pushActivity(new romm::ui::StoreActivity());
-    else
+    // StoreActivity is always the root activity, and PairingActivity (when
+    // needed) is pushed on top of it -- never the other way around. Pairing
+    // used to push a *new* StoreActivity on top of itself on success, which
+    // meant PairingActivity (and every lambda its buttons captured `this`
+    // in) stayed alive in memory for the rest of the session instead of
+    // being destroyed: borealis's Activity stack only supports popping the
+    // top activity, so once something was pushed on top of PairingActivity,
+    // there was no way to pop *it* specifically anymore. With the root/overlay
+    // order flipped, a successful pairing can just popActivity() to reveal
+    // the StoreActivity that was already underneath, which is what actually
+    // destroys PairingActivity correctly.
+    brls::Application::pushActivity(new romm::ui::StoreActivity());
+    if (!app.config.paired)
         brls::Application::pushActivity(new romm::ui::PairingActivity());
 
     while (brls::Application::mainLoop())
