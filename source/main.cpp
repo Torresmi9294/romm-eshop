@@ -9,11 +9,11 @@
 
 int main(int argc, char* argv[])
 {
-    // Redirects stdout/stderr to whichever PC pushed this build via
-    // `nxlink`, so brls::Logger output (and any printf) shows up live on
-    // that PC instead of only existing as "the screen did something weird."
-    // No-op / harmless if nothing is listening.
-    nxlinkStdio();
+    // borealis's own userAppInit() (called by libnx before main(), see
+    // external/borealis/library/lib/platforms/switch/switch_wrapper.c)
+    // already calls nxlinkStdio() -- redirecting stdout/stderr to whichever
+    // PC pushed this build via `nxlink`. Calling it again here would just
+    // open a second, redundant socket.
 
     brls::Logger::setLogLevel(brls::LogLevel::DEBUG);
 

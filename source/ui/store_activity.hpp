@@ -55,11 +55,15 @@ namespace romm::ui
 
         std::atomic<bool> m_updateAvailable{false};
         std::atomic<bool> m_updatePromptShown{false};
+        std::atomic<bool> m_updateCheckStarted{false};
+        std::thread m_updateCheckThread;
         updater::UpdateInfo m_updateInfo;
         std::mutex m_updateMutex;
 
         void StartLoading();
+        void StartUpdateCheck();
         void Tick();
         void RebuildContent();
+        void RebuildContentUnsafe(); // does the real work; RebuildContent() wraps it in try/catch
     };
 }

@@ -32,6 +32,8 @@ StoreActivity::~StoreActivity()
     *m_alive = false;
     if (m_loadThread.joinable())
         m_loadThread.detach();
+    if (m_updateCheckThread.joinable())
+        m_updateCheckThread.detach();
 }
 
 brls::View* StoreActivity::createContentView()
@@ -41,6 +43,8 @@ brls::View* StoreActivity::createContentView()
 
 void StoreActivity::onContentAvailable()
 {
+    brls::Logger::debug("StoreActivity: onContentAvailable begin");
+
     m_pollTask = std::make_unique<PollTask>(this);
     m_pollTask->start();
 
@@ -50,7 +54,9 @@ void StoreActivity::onContentAvailable()
     });
 
     RebuildContent();
+    brls::Logger::debug("StoreActivity: initial RebuildContent done, starting load");
     StartLoading();
+    brls::Logger::debug("StoreActivity: onContentAvailable end");
 }
 
 void StoreActivity::StartLoading()
@@ -59,39 +65,50 @@ void StoreActivity::StartLoading()
 
     auto alive = m_alive;
     m_loadThread = std::thread([this, alive]() {
+        brls::Logger::debug("StoreActivity: load thread started");
         auto& app = romm::AppState::Instance();
 
         romm::api::Platform platform;
         std::string error;
+        brls::Logger::debug("StoreActivity: calling GetSwitchPlatform");
         if (!app.client->GetSwitchPlatform(platform, error))
         {
+            brls::Logger::error("StoreActivity: GetSwitchPlatform failed: {}", error);
             if (!*alive) return;
             std::lock_guard<std::mutex> lock(m_dataMutex);
             m_errorText = error;
             m_phase = Phase::Error;
             return;
         }
+        brls::Logger::debug("StoreActivity: GetSwitchPlatform ok, platform.id={} romCount={}", platform.id, platform.romCount);
 
         std::vector<romm::api::Rom> roms;
+        brls::Logger::debug("StoreActivity: calling GetRoms");
         if (!app.client->GetRoms(platform.id, roms, error))
         {
+            brls::Logger::error("StoreActivity: GetRoms failed: {}", error);
             if (!*alive) return;
             std::lock_guard<std::mutex> lock(m_dataMutex);
             m_errorText = error;
             m_phase = Phase::Error;
             return;
         }
+        brls::Logger::debug("StoreActivity: GetRoms ok, count={}", roms.size());
 
         mkdir("sdmc:/switch", 0777);
         mkdir(romm::config::CONFIG_DIR, 0777);
         mkdir((std::string(romm::config::CONFIG_DIR) + "/cache").c_str(), 0777); // mkdir isn't recursive
         mkdir(romm::config::COVER_CACHE_DIR, 0777);
 
+        int coverIdx = 0;
         for (auto& rom : roms)
         {
             if (!*alive) return;
-            app.client->DownloadCoverArt(rom, CoverCachePath(rom));
+            brls::Logger::debug("StoreActivity: downloading cover {}/{} rom.id={}", ++coverIdx, roms.size(), rom.id);
+            bool ok = app.client->DownloadCoverArt(rom, CoverCachePath(rom));
+            brls::Logger::debug("StoreActivity: cover {} result={}", rom.id, ok);
         }
+        brls::Logger::debug("StoreActivity: all covers processed");
 
         if (!*alive) return;
         {
@@ -99,14 +116,32 @@ void StoreActivity::StartLoading()
             m_roms = std::move(roms);
             m_phase = Phase::Ready;
         }
+        brls::Logger::debug("StoreActivity: load thread finished");
+    });
+}
 
-        // Best-effort, non-blocking: a failed/slow check just means no
-        // update prompt this session, never blocks the store from showing.
-        if (!*alive) return;
+void StoreActivity::StartUpdateCheck()
+{
+    auto alive = m_alive;
+    m_updateCheckThread = std::thread([this, alive]() {
+        // Deliberately runs on its own thread, well after the grid has
+        // already rendered successfully (see Tick()) -- not chained onto
+        // the load thread. This is the app's first-ever HTTPS/TLS call
+        // (everything else talks plain HTTP to the user's own RomM server),
+        // and doing that heavy handshake immediately before allocating
+        // ~250 UI objects for the grid was crashing the app (confirmed via
+        // an Atmosphere crash report -- a User Break/abort on the main
+        // thread, right after the update check, inside grid construction).
+        // Best-effort and non-blocking either way: a failed/slow check just
+        // means no update prompt this session.
+        brls::Logger::debug("StoreActivity: calling CheckForUpdate (first HTTPS request)");
         romm::updater::UpdateInfo info;
         bool available = false;
         std::string updateError;
-        if (romm::updater::CheckForUpdate(info, available, updateError) && available && *alive)
+        bool checkOk = romm::updater::CheckForUpdate(info, available, updateError);
+        brls::Logger::debug("StoreActivity: CheckForUpdate returned ok={} available={} error=\"{}\"", checkOk, available, updateError);
+        if (!*alive) return;
+        if (checkOk && available)
         {
             std::lock_guard<std::mutex> lock(m_updateMutex);
             m_updateInfo = info;
@@ -124,15 +159,50 @@ void StoreActivity::Tick()
         brls::Application::pushActivity(new romm::ui::UpdateActivity(m_updateInfo));
     }
 
-    if (m_phase == m_lastRenderedPhase)
-        return;
+    if (m_phase != m_lastRenderedPhase)
+    {
+        m_lastRenderedPhase = m_phase.load();
+        RebuildContent();
 
-    m_lastRenderedPhase = m_phase.load();
-    RebuildContent();
+        if (m_lastRenderedPhase == Phase::Ready && !m_updateCheckStarted)
+        {
+            m_updateCheckStarted = true;
+            StartUpdateCheck();
+        }
+    }
 }
 
 void StoreActivity::RebuildContent()
 {
+    try
+    {
+        RebuildContentUnsafe();
+    }
+    catch (const std::exception& e)
+    {
+        brls::Logger::error("StoreActivity: RebuildContent threw: {}", e.what());
+        auto frame = new brls::AppletFrame();
+        frame->setTitle("Error");
+        auto root = new brls::Box();
+        root->setAxis(brls::Axis::COLUMN);
+        root->setJustifyContent(brls::JustifyContent::CENTER);
+        root->setAlignItems(brls::AlignItems::CENTER);
+        root->setGrow(1);
+        root->setPadding(60, 80, 60, 80);
+        auto label = new brls::Label();
+        label->setText(std::string("Something went wrong showing the store: ") + e.what());
+        label->setFontSize(22);
+        root->addView(label);
+        frame->setContentView(root);
+        this->setContentView(frame);
+    }
+
+    brls::Application::giveFocus(this->getDefaultFocus());
+}
+
+void StoreActivity::RebuildContentUnsafe()
+{
+    brls::Logger::debug("StoreActivity: RebuildContent begin");
     auto frame = new brls::AppletFrame();
     frame->setTitle("RomM eShop");
 
@@ -246,12 +316,5 @@ void StoreActivity::RebuildContent()
     }
 
     this->setContentView(frame);
-
-    // setContentView() outside the initial onContentAvailable() call (i.e.
-    // every rebuild here, since the first one shows a plain "Loading..."
-    // label with nothing focusable) does NOT get focus assigned
-    // automatically -- only Application::pushActivity() does that, once, at
-    // push time. Without this, the grid renders but the d-pad has nothing
-    // to move between, which looks exactly like the app hanging.
-    brls::Application::giveFocus(this->getDefaultFocus());
+    brls::Logger::debug("StoreActivity: RebuildContent end (setContentView done)");
 }
